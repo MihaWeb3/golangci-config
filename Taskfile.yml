@@ -1,0 +1,210 @@
+version: '3'
+
+vars:
+  # ── Пины версий инструментов ────────────────────────────────────────────────
+  GOLANGCI_LINT_VERSION: 'v2.15.0'  # Актуальная версия
+  PROTOC_GEN_GO_VERSION: 'v1.36.12'
+  PROTOC_GEN_GO_GRPC_VERSION: 'v1.6.2'
+  PROTOC_GEN_VALIDATE_VERSION: 'v1.3.3'
+  PROTOC_GEN_GRPC_GATEWAY_VERSION: 'v2.33.0'  # Актуальная версия
+  PROTOC_GEN_OPENAPIV2_VERSION: 'v2.33.0'  # Синхронизировано с grpc-gateway
+  BUF_VERSION: 'v1.73.0'
+  EASYP_VERSION: 'v0.17.0'  # Последняя стабильная версия
+  GRPCURL_VERSION: 'v1.9.4'
+
+  BIN_DIR: '{{.ROOT_DIR}}/bin'
+  STAMP_DIR: '{{.BIN_DIR}}/.stamp'
+
+  # ── Docker / Postgres ────────────────────────────────────────────────────────
+  POSTGRES_VERSION: '16'  # Стабильная и широко используемая версия
+  POSTGRES_USER: 'app'
+  POSTGRES_PASSWORD: 'app_password'
+  POSTGRES_DB: 'app_db'
+  POSTGRES_PORT: '5432'
+
+  # ── Реестр инструментов ─────────────────────────────────────────────────────
+  TOOLS:
+    - {name: golangci-lint, group: lint, versionVar: GOLANGCI_LINT_VERSION, version: '{{.GOLANGCI_LINT_VERSION}}', module: github.com/golangci/golangci-lint/v2, pkg: github.com/golangci/golangci-lint/v2/cmd/golangci-lint}
+    - {name: buf, group: proto, versionVar: BUF_VERSION, version: '{{.BUF_VERSION}}', module: github.com/bufbuild/buf, pkg: github.com/bufbuild/buf/cmd/buf}
+    - {name: easyp, group: proto, versionVar: EASYP_VERSION, version: '{{.EASYP_VERSION}}', module: github.com/easyp-tech/easyp, pkg: github.com/easyp-tech/easyp/cmd/easyp}
+    - {name: protoc-gen-go, group: proto, versionVar: PROTOC_GEN_GO_VERSION, version: '{{.PROTOC_GEN_GO_VERSION}}', module: google.golang.org/protobuf, pkg: google.golang.org/protobuf/cmd/protoc-gen-go}
+    - {name: protoc-gen-go-grpc, group: proto, versionVar: PROTOC_GEN_GO_GRPC_VERSION, version: '{{.PROTOC_GEN_GO_GRPC_VERSION}}', module: google.golang.org/grpc/cmd/protoc-gen-go-grpc, pkg: google.golang.org/grpc/cmd/protoc-gen-go-grpc}
+    - {name: protoc-gen-validate, group: proto, versionVar: PROTOC_GEN_VALIDATE_VERSION, version: '{{.PROTOC_GEN_VALIDATE_VERSION}}', module: github.com/envoyproxy/protoc-gen-validate, pkg: github.com/envoyproxy/protoc-gen-validate}
+    - {name: protoc-gen-validate-go, group: proto, sharedPin: 'yes', versionVar: PROTOC_GEN_VALIDATE_VERSION, version: '{{.PROTOC_GEN_VALIDATE_VERSION}}', module: github.com/envoyproxy/protoc-gen-validate, pkg: github.com/envoyproxy/protoc-gen-validate/cmd/protoc-gen-validate-go}
+    - {name: protoc-gen-grpc-gateway, group: proto, versionVar: PROTOC_GEN_GRPC_GATEWAY_VERSION, version: '{{.PROTOC_GEN_GRPC_GATEWAY_VERSION}}', module: github.com/grpc-ecosystem/grpc-gateway/v2, pkg: github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway}
+    - {name: protoc-gen-openapiv2, group: proto, versionVar: PROTOC_GEN_OPENAPIV2_VERSION, version: '{{.PROTOC_GEN_OPENAPIV2_VERSION}}', module: github.com/grpc-ecosystem/grpc-gateway/v2, pkg: github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2}
+    - {name: grpcurl, group: test, versionVar: GRPCURL_VERSION, version: '{{.GRPCURL_VERSION}}', module: github.com/fullstorydev/grpcurl, pkg: github.com/fullstorydev/grpcurl/cmd/grpcurl}
+
+  GOLANGCI_LINT: '{{.BIN_DIR}}/golangci-lint'
+  BUF: '{{.BIN_DIR}}/buf'
+  EASYP: '{{.BIN_DIR}}/easyp'
+  GRPCURL: '{{.BIN_DIR}}/grpcurl'
+
+tasks:
+  # ══ Инструменты ═════════════════════════════════════════════════════════════
+  tools:install:
+    desc: "Ставит все пиннутые инструменты в ./bin"
+    silent: true
+    cmds:
+      - task: _tools:install
+        vars: { GROUP: all }
+
+  tools:install:lint:
+    desc: "Ставит только golangci-lint"
+    silent: true
+    cmds:
+      - task: _tools:install
+        vars: { GROUP: lint }
+
+  tools:install:proto:
+    desc: "Ставит buf, easyp и protoc-плагины"
+    silent: true
+    cmds:
+      - task: _tools:install
+        vars: { GROUP: proto }
+
+  tools:install:test:
+    desc: "Ставит grpcurl"
+    silent: true
+    cmds:
+      - task: _tools:install
+        vars: { GROUP: test }
+
+  _tools:install:
+    internal: true
+    silent: true
+    requires:
+      vars: [GROUP]
+    cmds:
+      - for: { var: TOOLS }
+        cmd: |
+          case "{{.GROUP}}" in
+            all|{{.ITEM.group}}) ;;
+            *) exit 0 ;;
+          esac
+          stamp="{{.STAMP_DIR}}/{{.ITEM.name}}@{{.ITEM.version}}"
+          if [ -f "$stamp" ] && [ -x "{{.BIN_DIR}}/{{.ITEM.name}}" ]; then
+            exit 0
+          fi
+          echo "📦 {{.ITEM.name}} {{.ITEM.version}}..."
+          GOBIN="{{.BIN_DIR}}" go install "{{.ITEM.pkg}}@{{.ITEM.version}}"
+          mkdir -p "{{.STAMP_DIR}}"
+          rm -f "{{.STAMP_DIR}}/{{.ITEM.name}}@"*
+          touch "$stamp"
+
+  tools:outdated:
+    desc: "Показать пиннутые версии инструментов против latest (в пределах мажора)"
+    silent: true
+    cmds:
+      - task: _tools:versions
+        vars: { MODE: check }
+
+  tools:upgrade:
+    desc: "Бампнуть пины инструментов до latest прямо в Taskfile"
+    silent: true
+    cmds:
+      - task: _tools:versions
+        vars: { MODE: upgrade }
+      - cmd: 'echo "Пины обновлены. Дальше: task tools:install && task ci"'
+
+  _tools:versions:
+    internal: true
+    silent: true
+    requires:
+      vars: [MODE]
+    cmds:
+      - cmd: 'echo "Инструменты:"'
+      - for: { var: TOOLS }
+        cmd: |
+          [ -n "{{.ITEM.sharedPin}}" ] && exit 0
+          latest=$(go list -m -f '{{`{{.Version}}`}}' "{{.ITEM.module}}@latest" 2>/dev/null) \
+            || { printf '  %-24s ошибка запроса\n' "{{.ITEM.name}}"; exit 0; }
+          if [ "$latest" = "{{.ITEM.version}}" ]; then
+            printf '  %-24s %s (актуально)\n' "{{.ITEM.name}}" "{{.ITEM.version}}"
+          elif [ "{{.MODE}}" = "upgrade" ]; then
+            sed -i '' "s|^  {{.ITEM.versionVar}}: .*|  {{.ITEM.versionVar}}: '$latest'|" Taskfile.yaml
+            printf '  %-24s %s → %s\n' "{{.ITEM.name}}" "{{.ITEM.version}}" "$latest"
+          else
+            printf '  %-24s %s → доступна %s\n' "{{.ITEM.name}}" "{{.ITEM.version}}" "$latest"
+          fi
+
+  tools:clean:
+    desc: "Снести все установленные инструменты (rm -rf ./bin) — полный ресет"
+    cmds:
+      - rm -rf {{.BIN_DIR}}
+
+  # ══ Docker / Postgres ═══════════════════════════════════════════════════════
+  docker:up:
+    desc: "Поднять Postgres в Docker (в фоне)"
+    cmds:
+      - docker run -d --name {{.POSTGRES_DB}} \
+          -e POSTGRES_USER={{.POSTGRES_USER}} \
+          -e POSTGRES_PASSWORD={{.POSTGRES_PASSWORD}} \
+          -e POSTGRES_DB={{.POSTGRES_DB}} \
+          -p {{.POSTGRES_PORT}}:5432 \
+          postgres:{{.POSTGRES_VERSION}}
+
+  docker:down:
+    desc: "Остановить и удалить контейнер Postgres"
+    cmds:
+      - docker stop {{.POSTGRES_DB}} && docker rm {{.POSTGRES_DB}}
+
+  docker:logs:
+    desc: "Показать логи Postgres"
+    cmds:
+      - docker logs -f {{.POSTGRES_DB}}
+
+  # ══ Go: формат, линт, сборка ════════════════════════════════════════════════
+  format:
+    desc: "Форматирует весь проект (gofumpt + gci из .golangci.yml)"
+    aliases: [fmt]
+    deps: [tools:install:lint]
+    silent: true
+    cmds:
+      - '{{.GOLANGCI_LINT}} fmt ./... --config=.golangci.yml'
+
+  format:check:
+    desc: "Проверяет форматирование без записи (--diff) — гейт для CI"
+    deps: [tools:install:lint]
+    silent: true
+    cmds:
+      - '{{.GOLANGCI_LINT}} fmt ./... --config=.golangci.yml --diff'
+
+  lint:
+    desc: "Запускает golangci-lint"
+    deps: [tools:install:lint]
+    silent: true
+    cmds:
+      - '{{.GOLANGCI_LINT}} run ./... --config=.golangci.yml'
+
+  build:
+    desc: "Собирает все бинари проекта"
+    silent: true
+    cmds:
+      - 'go build ./...'
+
+  test:
+    desc: "Go-тесты (race, без кеша)"
+    silent: true
+    cmds:
+      - 'go test -race -count=1 ./...'
+
+  mod:tidy:
+    desc: "Привести go.mod/go.sum к go mod tidy"
+    cmds:
+      - 'go mod tidy'
+
+  mod:tidy:check:
+    desc: "Свежесть go.mod/go.sum (go mod tidy -diff) — гейт для CI"
+    cmds:
+      - 'go mod tidy -diff'
+
+  # ══ Агрегаты ════════════════════════════════════════════════════════════════
+  ci:
+    desc: "Полный гейт: формат, линт, сборка, тесты"
+    cmds:
+      - task: format:check
+      - task: lint
+      - task: mod:tidy:check
+      - task: build
+      - task: test
