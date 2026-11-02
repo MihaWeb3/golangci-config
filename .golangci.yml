@@ -1,0 +1,277 @@
+version: "2"  # Версия формата конфигурационного файла (v2 — для golangci-lint 2.x)
+
+run: # Параметры запуска линтера
+  timeout: 5m  # Максимальное время выполнения анализа
+  go: "1.27"  # Версия Go, под которую выполняется анализ (чтобы линтеры не предлагали фичи новее/старее)
+  relative-path-mode: gomod  # Пути к файлам интерпретируются относительно корня go-модуля
+  issues-exit-code: 1  # Код выхода = 1, если найдены ошибки (полезно для CI)
+  tests: true  # Анализировать также _test.go файлы
+  modules-download-mode: readonly  # Не разрешать загрузку зависимостей во время анализа (безопасно и быстрее на CI)
+  allow-parallel-runners: true  # Разрешить параллельные запуски (несколько редакторов/CI-джоб на одной машине)
+
+output: # Настройки вывода результатов линтинга
+  formats:
+    text: # Формат вывода в терминал
+      path: stdout  # Печатать в stdout
+      print-linter-name: true  # Показывать имя линтера рядом с каждым сообщением
+      print-issued-lines: true  # Показывать строку кода, где найдена проблема
+      colors: true  # Использовать цветной вывод (для лучшей читаемости)
+    # Для интеграции с GitHub Code Scanning раскомментируй:
+    # sarif:
+    #   path: golangci-lint.sarif
+
+issues: # Общие настройки для обработки проблем
+  max-issues-per-linter: 0  # Без лимита на количество ошибок от одного линтера
+  max-same-issues: 0  # Без лимита на количество одинаковых ошибок
+  uniq-by-line: true  # Отображать максимум одну ошибку на строку (избегает спама от разных линтеров по одной строке)
+  # new-from-rev: origin/main  # Для legacy-проектов: проверять только новый код относительно main (включать в CI на PR)
+
+linters: # Список активных и отключённых линтеров
+  default: standard  # Использовать стандартный набор линтеров golangci-lint
+  enable: # Явно включенные дополнительные линтеры
+    # Качество кода
+    - errcheck        # Проверяет, что ошибки не игнорируются
+    - staticcheck     # Глубокий статический анализ (includes gosimple, stylecheck)
+    - govet           # Встроенный в Go инструмент анализа (ловит потенциальные баги)
+    - gocritic        # Набор продвинутых правил для улучшения качества кода
+    - revive          # Проверяет стиль кода, оформление, названия
+    - unused          # Находит неиспользуемые переменные, типы, функции
+    - gosec           # Проверка на уязвимости и небезопасные практики
+    - depguard        # Запрещает импорт указанных пакетов (контроль зависимостей)
+    - bodyclose       # Проверяет, что закрывается `resp.Body` у HTTP-запросов
+    - noctx           # Проверяет, что HTTP-запросы используют context.Context
+    - containedctx    # Предупреждает, если `context.Context` сохраняется в структуре (плохо)
+    - contextcheck    # Проверяет, что `context.Context` передаётся в методы/функции
+    - sqlclosecheck   # Проверяет, что sql.Rows / sql.Stmt закрываются
+    - rowserrcheck    # Проверяет, что после итерации по sql.Rows проверяется rows.Err()
+    - spancheck       # Проверяет, что OpenTelemetry-спаны завершаются (span.End()) — актуально для трейсинга
+    - sloglint        # Единый стиль логирования через log/slog (no mixed args, attr-only)
+    - reassign        # Запрещает переприсваивание глобальных переменных других пакетов
+    - nosprintfhostport  # Находит fmt.Sprintf("%s:%d") для адресов — используй net.JoinHostPort
+
+    # gRPC / Protobuf
+    - protogetter     # Требует использовать GetXxx() вместо прямого доступа к полям proto-сообщений (защита от nil-паники)
+
+    # Сложность и размер
+    - cyclop          # Контролирует цикломатическую сложность функций
+    - gocognit        # Контролирует когнитивную сложность функций
+    - funlen          # Контролирует длину функций
+    - nakedret        # Запрещает "голые" return в длинных функциях
+
+    # Ошибки
+    - errorlint       # Рекомендует использовать `errors.Is` / `errors.As` вместо прямых сравнений
+    - errname         # Проверяет имена переменных/типов ошибок (должны содержать "Err")
+    - errchkjson      # Проверяет обработку ошибок json.Marshal/Unmarshal
+
+    # Корректность (логика и типобезопасность)
+    - exhaustive      # Полнота switch по enum — для proto-энумов особенно важно:
+                      # новое значение в .proto не должно молча проваливаться в default
+    - nilerr          # Возврат nil-error там, где err != nil — типовая логическая ошибка
+    - nilnesserr      # Проверили err != nil, но вернули другой (nil) error
+    - durationcheck   # Перемножение двух time.Duration — ошибка единиц времени
+    - fatcontext      # Вложенный/накапливающийся context.Context в циклах
+    - makezero        # make([]T, n) с последующим append — скрытые ведущие нули
+    - recvcheck       # Согласованность ресиверов типа (pointer vs value)
+    - predeclared     # Затенение предобъявленных идентификаторов (len/min/max/clear и т.д.)
+    - gocheckcompilerdirectives  # Валидность //go:-директив — опечатка молча не сработает
+    - musttag         # Требует теги (json/yaml...) у структур, которые маршалятся
+
+    # Современный Go (проект на 1.27)
+    - copyloopvar     # Обнаруживает ненужное копирование переменных цикла
+    - intrange        # Предлагает использовать for i := range n
+    - exptostd        # Заменяет golang.org/x/exp на stdlib
+    - modernize       # Современные идиомы из x/tools (slices/maps, итераторы, fmt.Appendf)
+
+    # Производительность
+    - perfsprint      # Заменяет медленные fmt.Sprintf на быстрые альтернативы
+    - prealloc        # Находит слайсы, которые можно pre-allocate
+
+    # Стиль
+    - asciicheck      # Предупреждает о не-ASCII символах в идентификаторах
+    - bidichk         # Ловит опасные Unicode bidi-символы (Trojan Source, CVE-2021-42574)
+    - dupl            # Находит дублированные фрагменты кода
+    - dupword         # Находит повторяющиеся слова в комментариях/строках ("the the")
+    - godot           # Комментарии верхнего уровня должны заканчиваться точкой
+    - ineffassign     # Обнаруживает неиспользуемые присваивания
+    - misspell        # Опечатки в английских словах (комментарии, строки)
+    - unparam         # Находит неиспользуемые параметры функций
+    - unconvert       # Лишние преобразования типов
+    - wastedassign    # Присваивания, чьё значение не читается
+    - usestdlibvars   # Предлагает использовать стандартные константы (http.MethodGet и т.д.)
+    - mirror          # Находит неправильное использование bytes/strings функций
+    - canonicalheader # Канонические ключи net/http.Header
+    - gochecknoinits  # Запрещает init() — скрытая инициализация усложняет тесты и отладку
+    - nolintlint      # Проверяет корректность //nolint директив
+    - forbidigo       # Запрещает определённые вызовы или конструкции по regex-паттернам
+
+    # Зависимости (go.mod)
+    - gomoddirectives # Контролирует replace/exclude/retract в go.mod (replace не должен утекать в прод)
+
+    # Тесты (тестов пока нет — правила стоят заранее, чтобы новые появлялись сразу правильными)
+    - usetesting      # t.Context()/t.Setenv вместо context.Background()/os.Setenv в тестах
+    - paralleltest    # Требует t.Parallel() на топ-уровне теста
+    - tparallel       # Согласованность использования t.Parallel() в тестах и подтестах
+    - thelper         # Хелперы тестов должны вызывать t.Helper() и иметь правильную сигнатуру
+    - testifylint     # Правильное использование testify (порядок expected/actual, require vs assert)
+
+  disable: # Линтеры, которые намеренно отключены
+    - gocyclo       # Старый линтер сложности (заменён на cyclop)
+    - lll           # Проверка длины строк (часто шумная и мешает)
+    - err113        # Слишком строгий: требует sentinel-ошибку на каждый fmt.Errorf
+    - varnamelen    # Много false positives на коротких идиоматичных именах (s, c, tc)
+    - nlreturn      # Спорные требования к пустым строкам перед return
+    - wsl           # Deprecated (заменён на wsl_v5)
+    - exhaustruct   # Требует заполнять все поля структур — слишком шумно для большинства проектов
+    - gochecknoglobals  # Запрещает любые глобальные переменные — слишком строго (ломает sentinel-ошибки и метрики)
+    - ireturn       # Запрещает возвращать интерфейсы — конфликтует с идиомами DI/фабрик
+    - testpackage   # Требует пакеты *_test — спорно, не всегда нужно
+    - wrapcheck     # Излишне строгий для учебного кода: здесь ошибки намеренно
+                    # оборачиваются не везде, чтобы примеры оставались читаемыми.
+                    # ДЛЯ PRODUCTION рекомендуется включить (убрать из disable).
+    - nilnil        # На учебном коде даёт шум: (nil, nil) как «ничего не нашли» здесь
+                    # осознанная форма, а не дефект
+
+  exclusions: # Исключения из анализа
+    generated: strict  # Игнорировать сгенерированные файлы (по "// Code generated ... DO NOT EDIT.")
+    presets: # Готовые наборы исключений golangci-lint
+      - comments               # Типовые шумные требования к комментариям (godoc у экспортируемых и т.п.)
+      - std-error-handling     # Не ругаться на Close()/Flush() и подобные вызовы стандартной библиотеки
+      - common-false-positives # Известные ложные срабатывания (например, gosec G103/G204 в типовых местах)
+    rules: # Локальные исключения по пути/файлу/линтерам
+      - path: _test\.go  # Для всех тестов:
+        linters:
+          - cyclop     # Не проверять сложность тестов
+          - dupl       # Не проверять дублирование в тестах
+          - gosec      # Не искать уязвимости в тестах
+          - funlen     # Тесты (особенно table-driven) бывают длинными
+          - gocognit   # Не проверять когнитивную сложность тестов
+          - forbidigo  # В тестах time.Sleep допустим
+          - gochecknoinits  # init() в тестах допустим
+          - noctx      # В тестах допустимы запросы без контекста
+          - errcheck   # Игнорирование ошибок в тестах не критично
+      - path: ^(cmd|main)\.go$|^cmd/  # Точки входа:
+        linters:
+          - gochecknoinits  # init() допустим в main-пакетах (флаги, версия сборки)
+          - forbidigo       # В main допустимы вспомогательные запреты вроде time.Sleep при graceful shutdown
+
+  settings: # Индивидуальные настройки для конкретных линтеров
+
+    errcheck:
+      check-type-assertions: true  # Проверять неявные паники в type assertion (x.(T) без ok)
+      check-blank: false           # Не требовать обработки при явном `_ = f()`
+
+    govet:
+      enable-all: true  # Включить все анализаторы go vet
+      disable:
+        - fieldalignment  # Шумный анализатор выравнивания структур (включать точечно при оптимизации памяти)
+        - shadow          # Слишком много ложных срабатываний на идиоматичном `err :=` в блоках
+
+    staticcheck:
+      checks: # Набор проверок staticcheck
+        - all
+        - "-ST1000"  # Не требовать package comment в каждом пакете
+        - "-ST1003"  # Именование (дублируется revive, избегаем двойных срабатываний)
+
+    exhaustive:
+      # default не считается «исчерпывающим»: каждое новое значение proto-энума обязано
+      # получить явный case, а защитный fallback пишется после switch. Ровно тот случай,
+      # ради которого линтер и включён — .proto растёт, обработчики не должны отставать.
+      default-signifies-exhaustive: false
+
+    gocognit:
+      min-complexity: 20  # Допустимая когнитивная сложность функции
+
+    funlen:
+      lines: 100       # Максимум строк в функции
+      statements: 50   # Максимум statements в функции
+
+    nakedret:
+      max-func-lines: 30  # Запретить naked return в функциях > 30 строк
+
+    perfsprint:
+      int-conversion: true   # Проверять конвертацию int
+      err-error: true        # Проверять err.Error()
+      errorf: true           # Проверять fmt.Errorf
+      sprintf1: true         # Проверять fmt.Sprintf с одним аргументом
+
+    nolintlint:
+      require-explanation: true  # Требовать объяснение для //nolint
+      require-specific: true     # Требовать указание конкретного линтера
+      allow-unused: false        # Ругаться на //nolint, который больше ничего не подавляет
+
+    paralleltest:
+      # Требуем t.Parallel() только на верхнем уровне теста: подтесты, делящие
+      # один gRPC-сервер на bufconn, нередко обязаны идти последовательно.
+      ignore-missing-subtests: true
+
+    gosec:
+      severity: medium    # Минимальная важность проблем: high/medium/low
+      confidence: medium  # Минимальный уровень уверенности: high/medium/low
+      config:
+        global:
+          audit: true        # Активировать все правила безопасности
+          show-ignored: true # Показывать проигнорированные проблемы в комментариях
+
+    cyclop:
+      max-complexity: 20  # Допустимая сложность функции (больше 10, но не слишком жёстко)
+
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: io/ioutil  # Запрет использовать устаревший пакет
+              desc: "Использование устаревшего пакета io/ioutil запрещено (замените вызовы на аналоги из пакетов os/io)"
+            - pkg: github.com/pkg/errors  # Архивирован, заменён стандартной библиотекой
+              desc: "Используй стандартный пакет errors и fmt.Errorf с %w"
+            - pkg: github.com/golang/protobuf  # Устаревший API protobuf
+              desc: "Используй google.golang.org/protobuf (github.com/golang/protobuf deprecated)"
+            - pkg: math/rand$
+              desc: "Используй math/rand/v2 (или crypto/rand для секретов)"
+
+    revive:
+      severity: warning  # Нарушения revive будут как предупреждения, а не ошибки
+
+    sloglint:
+      no-mixed-args: true  # Нельзя смешивать key-value и slog.Attr в одном вызове
+      attr-only: true      # Использовать только slog.Attr (типобезопасно)
+      context: scope       # Требовать *Context-методы, если контекст доступен в области видимости
+
+    godot:
+      scope: declarations  # Проверять комментарии к объявлениям верхнего уровня
+      capital: false       # Не требовать заглавную букву после точки
+
+    gomoddirectives:
+      replace-local: false  # Запретить локальные replace (=> ../path), они ломают сборку у других
+
+    forbidigo:
+      exclude-godoc-examples: true  # Не применять запреты к Godoc-примерам
+      analyze-types: true  # Искать запреты и в типах/константах, а не только в функциях
+      forbid: # Список запрещённых паттернов
+        - pattern: '^time\.Sleep$'  # Запрет использования time.Sleep
+          msg: "Запрещено использовать time.Sleep в продакшен-коде (используй таймеры/контекст)"
+        - pattern: '^http\.DefaultClient$'  # Запрет использования небезопасного http.DefaultClient
+          msg: "Не используй http.DefaultClient (нет таймаутов); создай *http.Client с таймаутами"
+        - pattern: '^http\.Get$|^http\.Post$|^http\.Head$|^http\.PostForm$'  # Хелперы на DefaultClient
+          msg: "http.Get/Post/Head используют DefaultClient без таймаутов; используй http.NewRequestWithContext и свой клиент"
+        - pattern: '^fmt\.Print(f|ln)?$'  # Отладочный вывод в stdout
+          msg: "Не используй fmt.Print* в коде сервиса; используй log/slog"
+        - pattern: '^log\.(Print|Fatal|Panic)(f|ln)?$'  # Стандартный log без уровней
+          msg: "Используй log/slog вместо стандартного log"
+        - pattern: '^os\.Exit$'  # Прямой выход обходит defer и graceful shutdown
+          msg: "Не вызывай os.Exit вне main (обходит defer и graceful shutdown)"
+
+formatters: # Форматтеры кода (проверка стиля)
+  enable:
+    - gofumpt  # Строгая версия gofmt с дополнительными правилами
+    - gci      # Форматтер импортов (гибкая альтернатива goimports)
+  settings:
+    gofumpt:
+      extra-rules: true  # Дополнительные правила gofumpt (группировка однотипных параметров функций и др.)
+    gci:
+      sections: # Порядок группировки импортов
+        - Standard  # Стандартная библиотека
+        - Default   # Сторонние зависимости
+        - Prefix(github.com/MihaWeb3/grpc-workshop)  # Локальные импорты проекта (замени grpc-workshop на имя своего репозитория)
+      no-inline-comments: false  # Разрешить комментарии после импортов (true — запретит)
+  exclusions: # Не форматируем сгенерированный код (pkg/proto/**, *.pb.go и т.п.)
+    generated: strict
